@@ -51,14 +51,14 @@ Point2d worldToScreen(Mat xyz) {
 void createCassiniTrack() {
 	double dt = 1.0/fps;
 
-	int len = 500;
+	int len = 700;
 	Eigen::ArrayXXd tmptrack(3, len);
 
 	double a = 0.98;
 	double b = 1.0;
 	tmptrack.row(0) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
 	tmptrack.row(1) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
-	for (int i = 0; i < 500; i++) {
+	for (int i = 0; i < len; i++) {
 		double r = sqrt(pow(a,2) * cos(2*tmptrack(0,i)) + sqrt(pow(b,4) - pow(a,4) * pow(sin(2 * tmptrack(0,i)),2)));
 		tmptrack(0,i) = r * cos(tmptrack(0,i)) * 0.6;
 		tmptrack(1,i) = r * sin(tmptrack(1,i)) * 0.6;
@@ -97,12 +97,12 @@ void createCassiniTrack() {
 void createInfinityTrack() {
 	double dt = 1.0/fps;
 
-	int len = 500;
+	int len = 600;
 	Eigen::ArrayXXd tmptrack(3, len);
 
 	tmptrack.row(0) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
 	tmptrack.row(1) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
-	for (int i = 0; i < 500; i++) {
+	for (int i = 0; i < len; i++) {
 		tmptrack(0,i) = 1.4 * sin(tmptrack(0,i))      * 0.45;
 		tmptrack(1,i) = 0.9 * sin(2.0 *tmptrack(1,i)) * 0.45;
 

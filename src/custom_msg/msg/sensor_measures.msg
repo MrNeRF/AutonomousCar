@@ -5,3 +5,5 @@ float32 odom_yaw
 float32 dt
 float32 leftDistance
 float32 rightDistance
+float32 deltaAngleLeftWheel
+float32 deltaAngleRightWheel

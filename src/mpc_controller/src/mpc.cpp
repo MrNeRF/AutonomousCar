@@ -48,6 +48,7 @@ class MPC_Controller {
 			phi_track     = Eigen::MatrixXd::Zero(1,1);
 			deltaAngleLeftWheel = 0.0;
 			deltaAngleRightWheel = 0.0;
+			calibHeading = 0.0;
 			old_state << 0, 0, 0;
 			trackDistance = 0.0;
 
@@ -56,6 +57,7 @@ class MPC_Controller {
 			factor = 0.0;
 			firstrun = true;
 			time_begin = std::chrono::high_resolution_clock::now();
+			calibrationTime = time_begin;
 
 			// Kalman filter init
 			//Hk = Eigen::MatrixXd::Zero(6,3);
@@ -107,6 +109,7 @@ class MPC_Controller {
 		double trackDistance;
 		double dt;
 		std::chrono::high_resolution_clock::time_point time_begin;
+		std::chrono::high_resolution_clock::time_point calibrationTime;
 		int currentIndex, kalman_index;
 		double factor;
 		ros::NodeHandle nh;
@@ -127,6 +130,7 @@ class MPC_Controller {
 		Eigen::MatrixXd phi_track;
 		double deltaAngleLeftWheel; 
 		double deltaAngleRightWheel;
+		double calibHeading;
 		//create blk diagonal matrix
 		void car_position_cb(const custom_msg::car_position::ConstPtr& p);
 		void measurement_cb(const custom_msg::sensor_measures::ConstPtr& measure);
@@ -175,38 +179,48 @@ void MPC_Controller::calibrateOdom(double trackDifference){
 	if (trackDistance == 0.0) {
 		return; // nothing to do
 	}
+	std::cout << "TrackDistance: " << trackDistance << std::endl;
 
 	int wheel_rows = delta_wheels.rows();
 	int heading_rows = delta_heading.rows();
 
-	delta_wheels(wheel_rows, 0) = deltaAngleRightWheel;
-	delta_wheels(wheel_rows, 1) = deltaAngleLeftWheel;
+	delta_wheels(wheel_rows - 1, 0) = deltaAngleRightWheel;
+	delta_wheels(wheel_rows - 1, 1) = deltaAngleLeftWheel;
 
-	delta_heading(heading_rows, 0) = odom_delta_yaw_measured;
+	delta_heading(heading_rows - 1, 0) = calibHeading;
 
 	Eigen::MatrixXd dwPseudoInv = (delta_wheels.transpose() * delta_wheels).inverse();
+	std::cout << "dwPseudoInv\n" << dwPseudoInv << std::endl;
+	std::cout << "deltaWheels\n" << delta_wheels.block(wheel_rows - 1, 0, 1,2) << std::endl;
+	std::cout << "deltaHeadign\n" << delta_heading.block(heading_rows - 1,0,1,1) << std::endl;
 	Eigen::MatrixXd a = dwPseudoInv * delta_wheels.transpose() * delta_heading;
 
 	int delta_track_rows = delta_track.rows();
-	delta_track(delta_track_rows, 0) = trackDifference;
+	delta_track(delta_track_rows - 1, 0) = trackDifference;
 
 	int phi_track_rows = phi_track.rows();
-	double phi = -a(0,0) * 1/2 * 1/a(0,1) * deltaAngleRightWheel + 1/2 * deltaAngleLeftWheel;
-	phi_track(phi_track_rows, 0) = phi;
+	double phi = -a(0,0) * 1/2 * 1/a(1,0) * deltaAngleRightWheel + 1/2 * deltaAngleLeftWheel;
+	phi_track(phi_track_rows - 1, 0) = phi;
 	
 	Eigen::MatrixXd phiPseudoInv = (phi_track.transpose() * phi_track).inverse();
-	Eigen::MatrixXd lwr = phiPseudoInv * phi_track * delta_track;
+	Eigen::MatrixXd lwr = phiPseudoInv * phi_track.transpose() * delta_track;
 	double leftWheelRadiusEst = lwr(0,0);
-	double rightWheelRadiusEst = -a(0,0) * 1/a(0,1) * leftWheelRadiusEst;
-	double wheelDistanceEst = rightWheelRadiusEst * 1/a(0,0);
+	double rightWheelRadiusEst = -a(0,0) * 1/a(1,0) * leftWheelRadiusEst;
+	double wheelDistanceEst = -leftWheelRadiusEst * 1/a(1,0);
 
+	// reset values
+	deltaAngleRightWheel = deltaAngleLeftWheel = odom_delta_yaw_measured = 0.0;
+
+	if(std::isnan(leftWheelRadiusEst) || std::isnan(rightWheelRadiusEst) || std::isnan(wheelDistanceEst))
+		return;
 	// extendMatricies
 	delta_wheels.conservativeResizeLike(Eigen::MatrixXd::Zero(wheel_rows + 1, 2));
 	delta_heading.conservativeResizeLike(Eigen::MatrixXd::Zero(heading_rows + 1, 1));
-	delta_track.conservativeResizeLike(Eigen::MatrixXd::Zero(delta_track_rows + 1, 2));
+	delta_track.conservativeResizeLike(Eigen::MatrixXd::Zero(delta_track_rows + 1, 1));
 	phi_track.conservativeResizeLike(Eigen::MatrixXd::Zero(phi_track_rows + 1, 1));
 
 	// print our calibration estimates
+	
 	std::cout << leftWheelRadiusEst << ", " << rightWheelRadiusEst <<  ", " << wheelDistanceEst << std::endl;
 }
 
@@ -218,15 +232,14 @@ void MPC_Controller::measurement_cb(const custom_msg::sensor_measures::ConstPtr&
 	lin_vel_measured			= measure->lin_vel;
 	imu_delta_yaw_measured		= measure->imu_yaw_delta;
 	odom_delta_yaw_measured		= measure->odom_yaw;
-	deltaAngleLeftWheel			= measure->deltaAngleLeftWheel;
-	deltaAngleRightWheel		= measure->deltaAngleRightWheel;
+	deltaAngleLeftWheel			+= measure->deltaAngleLeftWheel;
+	deltaAngleRightWheel		+= measure->deltaAngleRightWheel;
 	double delta_t = measure->dt;
 
+	deltaAngleLeftWheel = angleDifference(deltaAngleLeftWheel);
+	deltaAngleRightWheel = angleDifference(deltaAngleRightWheel);
 
-	ekf_bar(0) = ekf_state(0) + u_opt(0) * delta_t * cos(ekf_state(2) + u_opt(1)  * delta_t);
-	ekf_bar(1) = ekf_state(1) + u_opt(0) * delta_t * sin(ekf_state(2) + u_opt(1)  * delta_t);
-	ekf_bar(2) = ekf_state(2) + u_opt(1) * delta_t;
-
+	ekf_bar(0) = ekf_state(0) + u_opt(0) * delta_t * cos(ekf_state(2) + u_opt(1)  * delta_t); ekf_bar(1) = ekf_state(1) + u_opt(0) * delta_t * sin(ekf_state(2) + u_opt(1)  * delta_t); ekf_bar(2) = ekf_state(2) + u_opt(1) * delta_t; 
 	if (ekf_bar(2) > pi())
 		ekf_bar(2) -= 2 * pi();
 	else if (ekf_bar(2) < -pi())
@@ -276,7 +289,7 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 	Eigen::MatrixXd uref = Eigen::MatrixXd::Zero(nu, horizon);
 	Eigen::MatrixXd xref = Eigen::MatrixXd::Zero(nx, horizon + 1);
 	int end = track.cols();
-	double lad = 0.15;  // lookahead distance
+	double lad = 0.12;  // lookahead distance
 	double distance = 0.1;
 	volatile double norm;
 	int discretization = 80;
@@ -333,7 +346,6 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 		}
 		x_input = xref;
 		u_input = uref;
-		index +=1%2;
 		return index % number_refpoints;
 	}
 
@@ -424,19 +436,32 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 
 	Eigen::Vector3d state;
 	state << p->xpos, p->ypos, p->yaw;
-	double trackDifference;
 
 	if(firstrun) {
 		ekf_state(0) = imu_x_measured   = model(0) = odom_x_measured   = state(0);
 		ekf_state(1) = imu_y_measured   = model(1) = odom_y_measured   = state(1);
 		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = state(2);
-		old_state = model;
-		trackDifference = std::sqrt(pow(state(0) - old_state(0),2) + sqrt(pow(state(1) - old_state(1), 2))); 
+		old_state = state;
 		firstrun = false;
 	}
 
-	trackDistance += trackDifference;
-	calibrateOdom(trackDifference);
+	trackDistance += std::sqrt(pow(state(0) - old_state(0), 2) + pow(state(1) - old_state(1), 2)); 
+	//std::cout << "TrackDistance " << TrackDistance << std::endl;
+	double h = state(2) - old_state(2); 
+	old_state = state;
+
+	if (h > pi())
+		h -= 2 * pi();
+	else if (h < -pi())
+		h += 2 * pi();
+	calibHeading += h;
+
+	if (std::chrono::duration<double, std::milli>(now - calibrationTime).count() > 3000.0) {
+		calibrateOdom(trackDistance);
+		trackDistance = 0.0;
+		calibHeading = 0.0;
+		calibrationTime = now;
+	}
 
 	currentIndex = getRefXandU(currentIndex, state);
 	calc_mpc(state, true);
@@ -449,8 +474,6 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 		model(2) -= 2 * pi();
 	else if (model(2) < -pi())
 		model(2) += 2 * pi();
-
-	
 
 	custom_msg::mpc_control control;
 	control.lin_vel	= u_opt(0);
@@ -719,8 +742,8 @@ int main(int argc, char **argv) {
 	int nu = 2;
 	int horizon = 15; 
 	int steps = 30;
-	double target_velocity = 0.2; // m/s
-	double v_max = 0.2;
+	double target_velocity = 0.11; // m/s
+	double v_max = 0.11;
 	double c = 0.1346/2;
 	double angvel_max = v_max/c;
 
@@ -748,7 +771,7 @@ int main(int argc, char **argv) {
 	Eigen::Vector2d umin(-v_max, -angvel_max);
 	Eigen::Vector2d umax = -1 * umin;
 	Eigen::DiagonalMatrix<double, 3> q;
-	q.diagonal() << 80,80,0.6;  //90,90,0.8
+	q.diagonal() << 80,80,3;  //90,90,0.8
 	Eigen::DiagonalMatrix<double, 2> r;
 	r.diagonal() << 0.1,0.1;
 
