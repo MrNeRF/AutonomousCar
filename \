@@ -74,7 +74,7 @@ class MPC_Controller {
 			Hk = Eigen::MatrixXd::Zero(3,3);
 			Hk(0,0) = 1.0, Hk(1,1) = 1.0, Hk(2,2) = 1.0;
 			Rk = Eigen::MatrixXd::Identity(3,3);
-			Rk(0,0) = .1, Rk(1,1) = .4, Rk(2,2) = 0.1;
+			Rk(0,0) = .4, Rk(1,1) = .4, Rk(2,2) = 0.1;
 			Pk = Eigen::MatrixXd::Identity(3,3);
 			Pk(0,0) = .0, Pk(1,1) = .0; Pk(2,2) = .0;
 			Qk = Eigen::MatrixXd::Identity(3, 3);
@@ -93,7 +93,7 @@ class MPC_Controller {
 			odom_delta_yaw_measured = 0.0;
 				
 			positionSubscriber = nh.subscribe("car_position", 10, &MPC_Controller::car_position_cb, this);
-			measurementSubscriber = nh.subscribe("sensor_measures", 500, &MPC_Controller::measurement_cb, this);
+			measurementSubscriber = nh.subscribe("sensor_measures", 100, &MPC_Controller::measurement_cb, this);
 			pubMPC = nh.advertise<custom_msg::mpc_control>("mpc_control", 1);
 			pub_mpcmarker = nh.advertise<visualization_msgs::Marker>("mpc_marker", 10);
 		}
@@ -456,7 +456,7 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 		h += 2 * pi();
 	calibHeading += h;
 
-	if (std::chrono::duration<double, std::milli>(now - calibrationTime).count() > 450.0) {
+	if (std::chrono::duration<double, std::milli>(now - calibrationTime).count() > 500.0) {
 		calibrateOdom(trackDistance);
 		trackDistance = 0.0;
 		calibHeading = 0.0;
@@ -668,9 +668,9 @@ void MPC_Controller::extended_KF(double delta_t) {
 	imu_y_measured   = imu_y_measured   + lin_vel_measured * sin(imu_yaw_measured) * delta_t;
 
 	double odom_yaw_old = odom_delta_yaw_measured;
-	odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
 	odom_x_measured   = odom_x_measured   + lin_vel_measured * cos(odom_yaw_measured) * delta_t; 
 	odom_y_measured   = odom_y_measured   + lin_vel_measured * sin(odom_yaw_measured) * delta_t;
+	odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
 
 	if (imu_yaw_measured > pi())
 		imu_yaw_measured -= 2 * pi();
@@ -682,25 +682,25 @@ void MPC_Controller::extended_KF(double delta_t) {
 	else if (odom_yaw_measured < -pi())
 		odom_yaw_measured += 2 * pi();
 
-	/* Eigen::Vector3d imu_tmp; */
-	/* imu_tmp << imu_x_measured, imu_y_measured, imu_yaw_measured; */
-	/* Eigen::MatrixXd imubias(3,3); */
-	/* imubias <<  0.5698  ,  0.1375  ,  0.0178, */
-	/* 			0.0258 ,  0.5359 ,  0.0044, */
-	/* 			0.0000 ,  1.0000 ,  0.0000; */
+	Eigen::Vector3d imu_tmp;
+	imu_tmp << imu_x_measured, imu_y_measured, imu_yaw_measured;
+	Eigen::MatrixXd imubias(3,3);
+	imubias <<  0.5698  ,  0.1375  ,  0.0178,
+				0.0258 ,  0.5359 ,  0.0044,
+				0.0000 ,  1.0000 ,  0.0000;
 
-	/* imu_tmp = imubias * imu_tmp; */
-	/* imu_x_measured = imu_tmp(0); */
-	/* imu_x_measured = imu_tmp(1); */
-	/* imu_x_measured = imu_tmp(2); */
+	imu_tmp = imubias * imu_tmp;
+	imu_x_measured = imu_tmp(0);
+	imu_x_measured = imu_tmp(1);
+	imu_x_measured = imu_tmp(2);
 
-	/* Eigen::Vector3d odom_tmp; */
-	/* odom_tmp << odom_x_measured, odom_y_measured, odom_yaw_measured; */
-	/* Eigen::MatrixXd odombias(3,3); */
-	/* odombias << 0.1597 ,  -0.2476 ,  -0.0017, */
-    /* 0.1586 ,   0.3685 ,  -0.0003, */
-    /* 0.0000 ,   1.0000 ,   0.0000; */
-				
+	/* eigen::vector3d odom_tmp; */
+	/* odom_tmp << imu_x_measured, imu_y_measured, imu_yaw_measured; */
+	/* eigen::matrixxd odombias(3,3); */
+	/* odombias <<  0.0674, -0.4556,  0.0017, */
+	/* 			0.3904,	 0.0939,  0.0024, */
+	/* 			0.0000,  1.0000,  0.0000; */
+
 	/* odom_tmp = odombias * odom_tmp; */
 	/* odom_x_measured = odom_tmp(0); */
 	/* odom_x_measured = odom_tmp(1); */
@@ -742,9 +742,9 @@ int main(int argc, char **argv) {
 	int nu = 2;
 	int horizon = 15; 
 	int steps = 30;
-	double target_velocity = 0.1; // m/s
-	double v_max = 0.1;
-	double c = 0.134/2;
+	double target_velocity = 0.11; // m/s
+	double v_max = 0.11;
+	double c = 0.129945/2;
 	double angvel_max = v_max/c;
 
 	ros::Rate rate(steps);
@@ -771,7 +771,7 @@ int main(int argc, char **argv) {
 	Eigen::Vector2d umin(-v_max, -angvel_max);
 	Eigen::Vector2d umax = -1 * umin;
 	Eigen::DiagonalMatrix<double, 3> q;
-	q.diagonal() << 120.0,120.0,.6;  //90,90,0.8
+	q.diagonal() << 80,80,3;  //90,90,0.8
 	Eigen::DiagonalMatrix<double, 2> r;
 	r.diagonal() << 0.1,0.1;
 
