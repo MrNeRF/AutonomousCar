@@ -52,15 +52,17 @@ double epsilon = 0.05;
 double old_setpoint_lm = 0.0;
 double old_setpoint_rm = 0.0;
 // time variables
-unsigned long t_past, t_now;
+unsigned long t_past = 0;
+unsigned long t_now = 0;
+
 double dt = 0.0;
 
 // const values for car
 const double max_vx = 0.2;
-const double max_omega = max_vx/c;
+const double max_omega = 3.0;
 
 // milliseconds to sample
-int sampletime = 30;
+int sampletime = 50;
 
 // motor variables
 int lm_pwm = 0;
@@ -74,8 +76,8 @@ double last_rmserror = 0.0;
 double last_lms = 0.0;
 double last_rms = 0.0;
 
-const double kp = 24.0;
-const double ki = 2.0;
+const double kp = 40.0;
+const double ki = 0.0;
 const double kd = 1.0;
 
 /* const double kp = 30.0; */
@@ -148,12 +150,14 @@ void calcMotorSpeed() {
 	//else {
 	//}
 
-	distance_lw += leftTicks  / 2,0 * ticks * 2.0 * PI * leftWheelRadius;  
+	
+	
+	distance_lw += leftTicks  / ticks * 2.0 * PI * leftWheelRadius;  
 	distance_rw += rightTicks / ticks * 2.0 * PI * rightWheelRadius;
 	deltaAngleLeftWheel  = leftTicks  * 1.0 / ticks * 2.0 * PI;
 	deltaAngleRightWheel = rightTicks * 1.0 / ticks * 2.0 * PI; 
 	current_speed_lm	= 2.0 * (leftTicks  / ticks * 2.0 * PI * leftWheelRadius) / dt;
-	current_speed_rm	= 2.0 * (rightTicks / 40 * 2.0 * PI * rightWheelRadius) / dt;
+	current_speed_rm	= 2.0 * (rightTicks / ticks * 2.0 * PI * rightWheelRadius) / dt;
 	leftBackCounter		= 0;
 	rightBackCounter	= 0;
 	leftFrontCounter	= 0;
@@ -162,8 +166,8 @@ void calcMotorSpeed() {
 
 	interrupts();
 
-	odom_yaw = (-current_speed_rm  + current_speed_lm) / (2 * c) * dt;
-	lin_vel = (current_speed_rm  + current_speed_lm)/2.0;
+	odom_yaw = (-current_speed_rm  + current_speed_lm) / (2.0 * c) * dt;
+	lin_vel = (current_speed_rm  + current_speed_lm) / 2.0;
 
 	if (setpoint_lm < 0)
 		current_speed_lm *= -1;
@@ -264,6 +268,7 @@ void cb_control_cmd(const custom_msg::mpc_control &state) {
 	// ensure correctness of control vals	
 	double v_x   = state.lin_vel;
 	double omega = state.ang_vel; 
+
 	if (omega > max_omega)
 		omega = max_omega;
 	if (omega < -max_omega)
