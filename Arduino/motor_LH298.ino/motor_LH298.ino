@@ -166,8 +166,15 @@ void calcMotorSpeed() {
 
 	interrupts();
 
-	odom_yaw = (-current_speed_rm  + current_speed_lm) / (2.0 * c) * dt;
+	double iccRadius = 0.0;
 	lin_vel = (current_speed_rm  + current_speed_lm) / 2.0;
+
+	if (current_speed_rm == current_speed_lm) {
+		odom_yaw = 0.0;
+	} else {
+		iccRadius = c * (current_speed_rm + current_speed_lm) / (-current_speed_rm + current_speed_lm);
+		odom_yaw = (-current_speed_rm  + current_speed_lm) / (2.0 * c) * dt;
+	}
 
 	if (setpoint_lm < 0)
 		current_speed_lm *= -1;
@@ -198,6 +205,7 @@ void calcMotorSpeed() {
 	measures.rightDistance			= distance_rw;
 	measures.deltaAngleRightWheel	= deltaAngleRightWheel;
 	measures.deltaAngleLeftWheel	= deltaAngleLeftWheel;
+	measures.iccRadius				= iccRadius;
 	measure_publisher.publish(&measures);
 }
 

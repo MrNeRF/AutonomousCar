@@ -7,3 +7,4 @@ float32 leftDistance
 float32 rightDistance
 float32 deltaAngleLeftWheel
 float32 deltaAngleRightWheel
+float32 iccRadius

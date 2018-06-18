@@ -51,6 +51,7 @@ class MPC_Controller {
 			calibHeading = 0.0;
 			old_state << 0, 0, 0;
 			trackDistance = 0.0;
+			iccRadius = 0.0;
 
 
 			kalman_index = 0;
@@ -107,6 +108,7 @@ class MPC_Controller {
 		double target_velocity;
 		double c;
 		double trackDistance;
+		double iccRadius;
 		double dt;
 		std::chrono::high_resolution_clock::time_point time_begin;
 		std::chrono::high_resolution_clock::time_point calibrationTime;
@@ -234,6 +236,7 @@ void MPC_Controller::measurement_cb(const custom_msg::sensor_measures::ConstPtr&
 	odom_delta_yaw_measured		= measure->odom_yaw;
 	deltaAngleLeftWheel			+= measure->deltaAngleLeftWheel;
 	deltaAngleRightWheel		+= measure->deltaAngleRightWheel;
+	iccRadius					= measure->iccRadius;
 	double delta_t = measure->dt;
 
 	deltaAngleLeftWheel = angleDifference(deltaAngleLeftWheel);
@@ -663,14 +666,19 @@ Eigen::MatrixXd MPC_Controller::B_bar(Eigen::MatrixXd &u_ref, Eigen::MatrixXd &x
 void MPC_Controller::extended_KF(double delta_t) {
 	// calculate measurement updates based on odomoter
 
-	imu_yaw_measured = imu_yaw_measured + imu_delta_yaw_measured; 
 	imu_x_measured   = imu_x_measured   + lin_vel_measured * cos(imu_yaw_measured) * delta_t;
 	imu_y_measured   = imu_y_measured   + lin_vel_measured * sin(imu_yaw_measured) * delta_t;
+	imu_yaw_measured = imu_yaw_measured + imu_delta_yaw_measured; 
 
-	double odom_yaw_old = odom_delta_yaw_measured;
-	odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
-	odom_x_measured   = odom_x_measured   + lin_vel_measured * cos(odom_yaw_measured) * delta_t; 
-	odom_y_measured   = odom_y_measured   + lin_vel_measured * sin(odom_yaw_measured) * delta_t;
+	if(iccRadius > 0.0) {
+		odom_x_measured   = odom_x_measured   + lin_vel_measured * cos(odom_yaw_measured) * delta_t; 
+		odom_y_measured   = odom_y_measured   + lin_vel_measured * sin(odom_yaw_measured) * delta_t;
+		odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
+	} else {
+		odom_x_measured = cos(odom_delta_yaw_measured) * iccRadius * sin(odom_yaw_measured) - sin(odom_delta_yaw_measured) * iccRadius * sin(odom_yaw_measured) + odom_x_measured - iccRadius * sin(odom_yaw_measured);
+		odom_y_measured = -sin(odom_delta_yaw_measured) * iccRadius * cos(odom_yaw_measured) - cos(odom_delta_yaw_measured) * iccRadius * cos(odom_yaw_measured) + odom_y_measured + iccRadius * cos(odom_yaw_measured);
+		odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
+	}
 
 	if (imu_yaw_measured > pi())
 		imu_yaw_measured -= 2 * pi();
