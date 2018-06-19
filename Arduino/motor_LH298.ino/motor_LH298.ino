@@ -19,7 +19,7 @@ volatile int leftBackCounter = 0;
 volatile int rightBackCounter = 0;
 volatile int leftFrontCounter = 0;
 volatile int rightFrontCounter = 0;
-const double c = 0.134/2; // half distance between wheels in meter 0.13469/2
+const double c = 0.1338/2; // half distance between wheels in meter 0.13469/2
 
 Imu compass;
 double delta_t = 0.0;
@@ -30,8 +30,8 @@ double lin_vel =0.0;
 //distance driven
 double distance_lw = 0;
 double distance_rw = 0;
-double leftWheelRadius = 0.033;
-double rightWheelRadius = 0.033;
+double leftWheelRadius = 0.034;
+double rightWheelRadius = 0.034;
 double ticks = 20.0;
 // measured motor speed
 double current_speed_lm = 0.0;
@@ -58,11 +58,11 @@ unsigned long t_now = 0;
 double dt = 0.0;
 
 // const values for car
-const double max_vx = 0.2;
+const double max_vx = 0.4;
 const double max_omega = 3.0;
 
 // milliseconds to sample
-int sampletime = 50;
+int sampletime = 35;
 
 // motor variables
 int lm_pwm = 0;
@@ -76,8 +76,8 @@ double last_rmserror = 0.0;
 double last_lms = 0.0;
 double last_rms = 0.0;
 
-const double kp = 40.0;
-const double ki = 0.0;
+const double kp = 30.0;
+const double ki = 4.0;
 const double kd = 1.0;
 
 /* const double kp = 30.0; */
@@ -140,24 +140,17 @@ void calcMotorSpeed() {
 	
 	leftTicks = ((double)leftBackCounter + (double)leftFrontCounter) / 2;
 	rightTicks = ((double)rightBackCounter + (double)rightFrontCounter) / 2;
-	//if(abs(leftBackCounter - leftFrontCounter) > 1)
-	//	leftTicks = (double)min(leftBackCounter, leftFrontCounter);
-	//else {
-	//}
-
-	//if(abs(rightBackCounter - rightFrontCounter) > 1)
-	//	rightTicks = (double)min(rightBackCounter, rightFrontCounter);
-	//else {
-	//}
-
-	
 	
 	distance_lw += leftTicks  / ticks * 2.0 * PI * leftWheelRadius;  
 	distance_rw += rightTicks / ticks * 2.0 * PI * rightWheelRadius;
-	deltaAngleLeftWheel  = leftTicks  * 1.0 / ticks * 2.0 * PI;
-	deltaAngleRightWheel = rightTicks * 1.0 / ticks * 2.0 * PI; 
-	current_speed_lm	= 2.0 * (leftTicks  / ticks * 2.0 * PI * leftWheelRadius) / dt;
-	current_speed_rm	= 2.0 * (rightTicks / ticks * 2.0 * PI * rightWheelRadius) / dt;
+	deltaAngleLeftWheel  = (leftTicks  / ticks * 2.0 * PI) / dt;
+	deltaAngleRightWheel = (rightTicks / ticks * 2.0 * PI) / dt; 
+	current_speed_lm	=  (leftTicks  / ticks * 2.0 * PI * leftWheelRadius) / dt;
+	current_speed_rm	=  (rightTicks / ticks * 2.0 * PI * rightWheelRadius) / dt;
+	//measures.leftDistance			= leftBackCounter;
+	//measures.rightDistance			= leftFrontCounter;
+	//measures.deltaAngleRightWheel	= rightBackCounter;
+	//measures.deltaAngleLeftWheel	= rightFrontCounter;
 	leftBackCounter		= 0;
 	rightBackCounter	= 0;
 	leftFrontCounter	= 0;
@@ -166,14 +159,12 @@ void calcMotorSpeed() {
 
 	interrupts();
 
-	double iccRadius = 0.0;
 	lin_vel = (current_speed_rm  + current_speed_lm) / 2.0;
 
 	if (current_speed_rm == current_speed_lm) {
 		odom_yaw = 0.0;
 	} else {
-		iccRadius = c * (current_speed_rm + current_speed_lm) / (-current_speed_rm + current_speed_lm);
-		odom_yaw = (-current_speed_rm  + current_speed_lm) / (2.0 * c) * dt;
+		odom_yaw = -1.0 * (current_speed_rm  - current_speed_lm) / (2.0 * c) * dt;
 	}
 
 	if (setpoint_lm < 0)
@@ -199,13 +190,12 @@ void calcMotorSpeed() {
 	measures.lin_vel				= lin_vel;
 	measures.imu_yaw_delta 	 		= imu_delta;
 	measures.sensor_yaw				= imu_now;
-	measures.odom_yaw				= odom_yaw;
+	measures.odom_yaw				= odom_yaw/2.0;
 	measures.dt						= delta_t;
 	measures.leftDistance			= distance_lw;
 	measures.rightDistance			= distance_rw;
 	measures.deltaAngleRightWheel	= deltaAngleRightWheel;
 	measures.deltaAngleLeftWheel	= deltaAngleLeftWheel;
-	measures.iccRadius				= iccRadius;
 	measure_publisher.publish(&measures);
 }
 
@@ -293,6 +283,7 @@ void cb_control_cmd(const custom_msg::mpc_control &state) {
 }
 
 ros::Subscriber<custom_msg::mpc_control> sub("/mpc_control", &cb_control_cmd);
+unsigned long loop_time = 0;
 
 void setup() {
 	pinMode(leftBackWheelEnc, INPUT_PULLUP);
@@ -316,8 +307,10 @@ void setup() {
 	nh.subscribe(sub);
 	nh.advertise(measure_publisher);
 	t_now = millis();
+	loop_time = millis();
 	compass.init();
 }
+
 
 void loop() {
 
@@ -325,5 +318,10 @@ void loop() {
 	setMotorVals();
 
 	nh.spinOnce();
-	//delay(20);	
+	unsigned long tdiff = millis() - loop_time;
+	/* if(tdiff < 33) { */
+	/* 	delay(33 - tdiff); */
+	/* } */
+
+	loop_time = millis();
 }
