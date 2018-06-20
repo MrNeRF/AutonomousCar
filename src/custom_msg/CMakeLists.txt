@@ -52,6 +52,7 @@ add_message_files(
 	sensor_measures.msg
 	mpc_control.msg
 	car_position.msg
+	optimize.msg
 )
 
 ## Generate services in the 'srv' folder

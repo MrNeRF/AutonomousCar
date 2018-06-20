@@ -8,6 +8,7 @@
 #include <custom_msg/mpc_control.h>
 #include <custom_msg/car_position.h>
 #include <custom_msg/sensor_measures.h>
+#include <custom_msg/optimize.h>
 #include <custom_msg/track.h>
 #include "std_msgs/Float64MultiArray.h"
 #include "visualization_msgs/Marker.h"
@@ -85,6 +86,7 @@ class MPC_Controller {
 			positionSubscriber = nh.subscribe("car_position", 10, &MPC_Controller::car_position_cb, this);
 			measurementSubscriber = nh.subscribe("sensor_measures", 500, &MPC_Controller::measurement_cb, this);
 			pubMPC = nh.advertise<custom_msg::mpc_control>("mpc_control", 1);
+			pubOptimize = nh.advertise<custom_msg::optimize>("optimize", 1);
 			pub_mpcmarker = nh.advertise<visualization_msgs::Marker>("mpc_marker", 10);
 		}
 
@@ -102,8 +104,9 @@ class MPC_Controller {
 		double factor;
 		ros::NodeHandle nh;
 		ros::Subscriber positionSubscriber, measurementSubscriber;
-		ros::Publisher pubMPC, pub_mpcmarker;
+		ros::Publisher pubMPC, pub_mpcmarker, pubOptimize;
 		Eigen::Vector3d car_pos;
+		Eigen::Vector3d init_state;
 		Eigen::Vector2d u_min;
 		Eigen::Vector2d u_max;
 		Eigen::MatrixXd track;
@@ -365,11 +368,12 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 
 	Eigen::Vector3d state;
 	state << p->xpos, p->ypos, p->yaw;
+	car_pos = state;
 
 	if(firstrun) {
-		ekf_state(0) = imu_x_measured   = model(0) = odom_x_measured   = state(0);
-		ekf_state(1) = imu_y_measured   = model(1) = odom_y_measured   = state(1);
-		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = state(2);
+		ekf_state(0) = imu_x_measured   = model(0) = odom_x_measured   = init_state(0) = state(0);
+		ekf_state(1) = imu_y_measured   = model(1) = odom_y_measured   = init_state(1) = state(1);
+		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = init_state(2) = state(2);
 		firstrun = false;
 	}
 
@@ -502,7 +506,6 @@ Eigen::VectorXd  MPC_Controller::mpc_controller(Eigen::MatrixXd x_ref, Eigen::Ma
 	Eigen::VectorXd xk_bar = Ak_bar * x_tilda + Bk_bar * uk_bar;
 	Eigen::Map<Eigen::MatrixXd> xk_bar_reshape(xk_bar.data(), nx, horizon);
 	Eigen::MatrixXd xk = xk_bar_reshape.block(0,0,nx,horizon) + x_ref.block(0,0,nx,horizon);
-	car_pos = xk.block(0,0,3,1);
 
 	if(sentMarker) {
 		sendMPCMarker(track.block(0,currentIndex,2,1), xk);
@@ -573,6 +576,23 @@ Eigen::MatrixXd MPC_Controller::B_bar(Eigen::MatrixXd &u_ref, Eigen::MatrixXd &x
 void MPC_Controller::extended_KF(double delta_t) {
 	/* T.D. Larsen et al. 1998: Location Esitimation for Autonomously Guided */ 
 	/* 	Vehicle using an Augmented Kalman Filter to Autocalibrate the  Odometry */	
+
+	custom_msg::optimize optim;
+	optim.odom_delta_yaw_measured = odom_delta_yaw_measured;
+	optim.imu_delta_yaw_measured = imu_delta_yaw_measured;
+	optim.linv_vel_measured = lin_vel_measured;
+	optim.deltaAngleLeftWheel = deltaAngleLeftWheel;
+	optim.deltaAngleRightWheel = deltaAngleRightWheel;
+	optim.optLinVel = u_opt(0);
+	optim.optAngVel = u_opt(1);
+	optim.init_x   = init_state(0);
+	optim.init_y   = init_state(1);
+	optim.init_yaw = init_state(2);
+	optim.current_x	  = car_pos(0); 
+	optim.current_y   = car_pos(1);
+	optim.current_yaw = car_pos(2);
+	optim.delta_t = delta_t;
+	pubOptimize.publish(optim);
 
 	// calculate measurement updates based on odomoter
 	odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
