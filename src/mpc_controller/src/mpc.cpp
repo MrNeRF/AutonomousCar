@@ -131,6 +131,7 @@ class MPC_Controller {
 		double angleDifference(double diff);
 		int getQuadrant(double quadrant);
 		//void car_position_cb(const nav_msgs::Odometry::ConstPtr& p);
+		Eigen::Vector3d wmr(Eigen::Vector3d x, Eigen::Vector2d u, double stepsize_h);
 		Eigen::VectorXd mpc_controller(Eigen::MatrixXd x_ref, Eigen::MatrixXd u_ref, Eigen::Vector3d state, bool sentMarker);
 		Eigen::MatrixXd A_k(Eigen::MatrixXd u_ref, Eigen::MatrixXd x_ref, int i);
 		Eigen::MatrixXd B_k(Eigen::MatrixXd x_ref, int i);
@@ -164,6 +165,14 @@ class MPC_Controller {
 		void extended_KF(double delta_t);
 };
 
+Eigen::Vector3d MPC_Controller::wmr(Eigen::Vector3d x, Eigen::Vector2d u, double stepsize_h){
+	Eigen::Vector3d newstate;
+	newstate << 0.0,0.0,0.0;
+	newstate(0) = x(0) + stepsize_h * u(0) * cos(x(2));
+	newstate(1) = x(1) + stepsize_h * u(0) * sin(x(2));
+	newstate(2) = x(2) + stepsize_h * u(1);
+	return newstate;
+}
 
 
 void MPC_Controller::measurement_cb(const custom_msg::sensor_measures::ConstPtr& measure) {
@@ -224,7 +233,7 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 	Eigen::MatrixXd uref = Eigen::MatrixXd::Zero(nu, horizon);
 	Eigen::MatrixXd xref = Eigen::MatrixXd::Zero(nx, horizon + 1);
 	int end = track.cols();
-	double lad = 0.12;  // lookahead distance
+	double lad = 0.25;  // lookahead distance
 	double distance = 0.1;
 	volatile double norm;
 	int discretization = 80;
@@ -233,8 +242,8 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 
 	// prepare lookahead half circle
 	Eigen::ArrayXXd lahead_circle(2, discretization);
-	lahead_circle.row(0) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - pi()/2, state(2) + pi()/2);
-	lahead_circle.row(1) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - pi()/2, state(2) + pi()/2);
+	lahead_circle.row(0) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - 0.5 * pi(), state(2) + 0.5 * pi());
+	lahead_circle.row(1) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - 0.5 * pi(), state(2) + 0.5 *pi());
 	lahead_circle.row(0) = lahead_circle.row(0).cos() * lad;
 	lahead_circle.row(1) = lahead_circle.row(1).sin() * lad;
 	Eigen::MatrixXd car_circle = lahead_circle.matrix();
@@ -255,78 +264,29 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 		}
 	}
 
+
 	index = tmp_index;
 
 	Eigen::VectorXd d = track.block(0,index,2,1) - state.block(0,0,2,1);
+	double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
 	norm = std::sqrt(d.dot(d));
-	double alpha = atan2(track(1,index), track(0,index));
-	if( norm > lad + 0.1 && std::abs(angleDifference(state(2) - alpha)) > pi() / 4) {
-		xref.block(0,0,3,1) << 0,0,1;
-		for(int i= 1; i < horizon + 1; i++) {
-			xref.block(0,i,3,1) << 0,0,1;
-			uref(0,i-1) = 0;
-			uref(1,i-1) = u_max(1);
-		}
-		x_input = xref;
-		u_input = uref;
-		return index % number_refpoints;
-	} else if(norm > lad + 0.1) {
-		xref.block(0,0,2,1) = state.block(0,0,2,1);
-		xref(2,0) = alpha;
-		for(int i= 1; i < horizon + 1; i++) {
-			xref.block(0,i,2,1) = state.block(0,0,2,1) + d * i * dt;
-			xref(2,i) = 0.0;
-			uref(0,i-1) = target_velocity;
-			uref(1,i-1) = 0.0;
-		}
-		x_input = xref;
-		u_input = uref;
-		return index % number_refpoints;
-	}
+	double curvature = 2 * xv / (norm * norm);
+	xref.block(0,0,3,1) = state; 
+	for(int n=0; n < horizon; n++){
 
-	if (index + horizon >= end) {
-		int k = 0;
-		for(int i = index; i < end; i++) {
-			// just x and y position
-			xref.block(0, k, 3, 1) = track.block(0,i,3,1);
-			k +=1;
+		uref(0,n) = target_velocity;
+		uref(1,n) = 2 * target_velocity * curvature;
+		xref.block(0,n+1, 3,1) = wmr(xref.block(0,n,3,1), uref.block(0,n,2,1), dt);
+		int currentQuadrant = getQuadrant(xref(2,n));
+		if (currentQuadrant == 2 && quadTransTo(xref(2,n), xref(2,n+1)) == 3) {
+			xref(2,n+1) += 2 * pi();
 		}
-
-		int diff = end - index;
-
-		for (int i = 0; i < horizon - diff + 1 ; i++) {
-			xref.block(0, k, 3, 1) = track.block(0,i,3,1);
-			k +=1;
+		else if (currentQuadrant == 3 && quadTransTo(xref(2,n), xref(2,n+1)) == 2) {
+			xref(2,0) -= 2 * pi();
 		}
-	}  else {
-		if(index > 0) {
-			xref.block(0,0,3,horizon + 1) = track.block(0,index-1,3,horizon+1);
-		} else {
-			xref.block(0,0,3,1) = track.block(0, number_refpoints - 1, 3,1);
-			xref.block(0,1,3,horizon) = track.block(0, 0,3, horizon);
-		}
-	}
-
-	int currentQuadrant = getQuadrant(state(2));
-	if (currentQuadrant == 2 && quadTransTo(state(2), xref(2,0)) == 3) {
-		xref(2,0) += 2 * pi();
-	}
-	else if (currentQuadrant == 3 && quadTransTo(state(2), xref(2,0)) == 2)
-		xref(2,0) -= 2 * pi();
-	
-	for(int i= 1; i < horizon+1; i++) {
-
-		if (currentQuadrant == 2 && quadTransTo(state(2), xref(2,i)) == 3) {
-			xref(2,i) += 2 * pi();
-		}
-		else if (currentQuadrant == 3 && quadTransTo(state(2), xref(2,i)) == 2)
-			xref(2,i) -= 2 * pi();
-		double angular_vel = (xref(2,i) - xref(2,i-1))/dt;
-		uref(0,i-1) = target_velocity;
-		uref(1,i-1) = angular_vel;
+		state = xref.block(0,n+1,3,1);
 	}
 	x_input = xref;
-	//std::cout << "x_input " << x_input.block(0,0,3,5) << std::endl <<std::endl;
 	u_input = uref;
 	return index % number_refpoints;
 }
@@ -643,7 +603,7 @@ int main(int argc, char **argv) {
 
 	int nx = 3;
 	int nu = 2;
-	int horizon = 15; 
+	int horizon = 40; 
 	int steps = 30;
 	double target_velocity = 0.15; // m/s
 	double v_max = target_velocity;

@@ -24,7 +24,7 @@ class SS_Controller
 SS_Controller::SS_Controller() {
 		// ROS Messages
 		car_control = nh.advertise<custom_msg::mpc_control>("mpc_control",1);
-		joy_sub = nh.subscribe<sensor_msgs::Joy>("joy", 1, &SS_Controller::joyCallback, this);
+		joy_sub = nh.subscribe<sensor_msgs::Joy>("/joy", 1, &SS_Controller::joyCallback, this);
 	}
 
 void SS_Controller::joyCallback(const sensor_msgs::Joy::ConstPtr& joy) {
@@ -42,6 +42,10 @@ void SS_Controller::joyCallback(const sensor_msgs::Joy::ConstPtr& joy) {
 int main(int argc, char **argv) {
 	ros::init(argc, argv, "SS_Controller");
 	SS_Controller robot;
-
-	ros::spin();
+	ros::Rate r(50);
+	
+	while(ros::ok()) {
+		ros::spinOnce();
+		r.sleep();
+	}
 }
