@@ -632,7 +632,7 @@ int main(int argc, char **argv) {
 	Eigen::Vector2d umin(-v_max, -angvel_max);
 	Eigen::Vector2d umax = -1 * umin;
 	Eigen::DiagonalMatrix<double, 3> q;
-	q.diagonal() << 100.0,100.0,5.0;  //90,90,0.8
+	q.diagonal() << 100.0,100.0,.1;  //90,90,0.8
 	Eigen::DiagonalMatrix<double, 2> r;
 	r.diagonal() << 0.1,0.1;
 

@@ -21,6 +21,7 @@ class Naive_Controller {
 			max_angular_vel = max_angular_vel_;
 			number_refpoints = track.cols();
 			car_pos << 0,0,0;
+			currentIndex = 0;
 
 			deltaAngleLeftWheel = 0.0;
 			deltaAngleRightWheel = 0.0;
@@ -308,7 +309,7 @@ int main(int argc, char **argv) {
 	ros::ServiceClient trackClient = nh.serviceClient<custom_msg::track>("track");
 
 	int steps = 30;
-	double target_velocity = 0.15; // m/s
+	double target_velocity = 0.2; // m/s
 	double max_angular_vel = 0.9;
 
 	ros::Rate rate(steps);
