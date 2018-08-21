@@ -14,6 +14,7 @@
 #include <ctime>
 #include <cmath>
 #include <cassert>
+#include <stdio.h>
 
 using namespace std;
 using namespace cv;
@@ -445,6 +446,7 @@ int main(int argc, char **argv) {
 			case 'r':
 				if(!recording) {
 					cout << "Recording" << endl;
+					video = VideoWriter("autonomous_car.avi", codec, 24, Size(img_width, img_height));
 					recording = true;
 				} else {
 					cout << "Stop Recording" << endl;

@@ -232,7 +232,6 @@ void MPC_Controller::sendMPCMarker(Eigen::MatrixXd nextGoal, Eigen::MatrixXd mpc
 int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 	Eigen::MatrixXd uref = Eigen::MatrixXd::Zero(nu, horizon);
 	Eigen::MatrixXd xref = Eigen::MatrixXd::Zero(nx, horizon + 1);
-	int end = track.cols();
 	double lad = 0.25;  // lookahead distance
 	double distance = 0.1;
 	volatile double norm;
@@ -271,9 +270,9 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 	double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
 	norm = std::sqrt(d.dot(d));
 	double curvature = 2 * xv / (norm * norm);
+
 	xref.block(0,0,3,1) = state; 
 	for(int n=0; n < horizon; n++){
-
 		uref(0,n) = target_velocity;
 		uref(1,n) = 2 * target_velocity * curvature;
 		xref.block(0,n+1, 3,1) = wmr(xref.block(0,n,3,1), uref.block(0,n,2,1), dt);
@@ -603,9 +602,9 @@ int main(int argc, char **argv) {
 
 	int nx = 3;
 	int nu = 2;
-	int horizon = 20; 
+	int horizon = 30; 
 	int steps = 30;
-	double target_velocity = 0.2; // m/s
+	double target_velocity = 0.15; // m/s
 	double v_max = target_velocity;
 	double c = 0.134/2;
 	double angvel_max = v_max/c;
@@ -633,9 +632,9 @@ int main(int argc, char **argv) {
 	Eigen::Vector2d umin(-v_max, -angvel_max);
 	Eigen::Vector2d umax = -1 * umin;
 	Eigen::DiagonalMatrix<double, 3> q;
-	q.diagonal() << 100.0,100.0,1.0;  //90,90,0.8
+	q.diagonal() << 100.0,100.0,5.0;  //90,90,0.8
 	Eigen::DiagonalMatrix<double, 2> r;
-	r.diagonal() << 2.1,2.1;
+	r.diagonal() << 0.1,0.1;
 
 	// initilize and start controller
 	MPC_Controller mpc(nh, horizon, q, r, track, target_velocity, umin, umax, nx, nu, c);
