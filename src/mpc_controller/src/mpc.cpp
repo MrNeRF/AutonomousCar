@@ -603,9 +603,9 @@ int main(int argc, char **argv) {
 
 	int nx = 3;
 	int nu = 2;
-	int horizon = 40; 
+	int horizon = 20; 
 	int steps = 30;
-	double target_velocity = 0.15; // m/s
+	double target_velocity = 0.2; // m/s
 	double v_max = target_velocity;
 	double c = 0.134/2;
 	double angvel_max = v_max/c;
@@ -630,13 +630,12 @@ int main(int argc, char **argv) {
 		ROS_ERROR("failed to call service track");
 	}
 
-	//eigen::vector2d umin(0.7, 0.7/0.1346/2);
 	Eigen::Vector2d umin(-v_max, -angvel_max);
 	Eigen::Vector2d umax = -1 * umin;
 	Eigen::DiagonalMatrix<double, 3> q;
 	q.diagonal() << 100.0,100.0,1.0;  //90,90,0.8
 	Eigen::DiagonalMatrix<double, 2> r;
-	r.diagonal() << 0.1,0.1;
+	r.diagonal() << 2.1,2.1;
 
 	// initilize and start controller
 	MPC_Controller mpc(nh, horizon, q, r, track, target_velocity, umin, umax, nx, nu, c);

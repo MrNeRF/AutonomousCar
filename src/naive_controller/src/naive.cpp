@@ -54,18 +54,17 @@ void Naive_Controller::measurement_cb(const custom_msg::sensor_measures::ConstPt
 
 
 int Naive_Controller::getControl(int index, Eigen::VectorXd state) {
-	double lad = 0.1;  // lookahead distance
-	double distance = 0.10;
-	double norm;
-	double error_norm;
+	double lad = 0.25;  // lookahead distance
+	double distance = 0.1;
+	volatile double norm;
 	int discretization = 80;
 	int tmp_index = index;
 
 
 	// prepare lookahead half circle
 	Eigen::ArrayXXd lahead_circle(2, discretization);
-	lahead_circle.row(0) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - pi()/2, state(2) + pi()/2);
-	lahead_circle.row(1) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - pi()/2, state(2) + pi()/2);
+	lahead_circle.row(0) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - 0.5 * pi(), state(2) + 0.5 * pi());
+	lahead_circle.row(1) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - 0.5 * pi(), state(2) + 0.5 *pi());
 	lahead_circle.row(0) = lahead_circle.row(0).cos() * lad;
 	lahead_circle.row(1) = lahead_circle.row(1).sin() * lad;
 	Eigen::MatrixXd car_circle = lahead_circle.matrix();
@@ -86,30 +85,16 @@ int Naive_Controller::getControl(int index, Eigen::VectorXd state) {
 		}
 	}
 
+
 	index = tmp_index;
 
-	Eigen::VectorXd error = track.block(0,index,3,1) - state;
-	error(2) = angleDifference(error(2));
-	std::cout << error << std::endl;
-	std::cout << "--------" << std::endl;
-	error_norm = std::sqrt(error.block(0,0,2,1).dot(error.block(0,0,2,1)));
+	Eigen::VectorXd d = track.block(0,index,2,1) - state.block(0,0,2,1);
+	double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
+	norm = std::sqrt(d.dot(d));
+	double curvature = 2 * xv / (norm * norm);
 
-	if(error_norm > lad + 0.1 &&  error(2) > pi() / 4) {
-			u_opt(0) = 0.0;
-			u_opt(1) = error(2)/dt;
-	} else if(error_norm > lad + 0.1) {
-			u_opt(0) = target_velocity;
-			u_opt(1) = error(2)/dt;
-	} else {
-		u_opt(0) = target_velocity;
-		u_opt(1) = error(2)/dt;
-	}
-
-	if (u_opt(1) > max_angular_vel)
-		u_opt(1) = max_angular_vel;
-	else if (u_opt(1) < -max_angular_vel)
-		u_opt(1) = -max_angular_vel;
-
+	u_opt(0) = target_velocity;
+	u_opt(1) = 2 * target_velocity * curvature;
 	return index % number_refpoints;
 }
 
@@ -171,7 +156,7 @@ int main(int argc, char **argv) {
 	ros::ServiceClient trackClient = nh.serviceClient<custom_msg::track>("track");
 
 	int steps = 30;
-	double target_velocity = 0.1; // m/s
+	double target_velocity = 0.15; // m/s
 	double max_angular_vel = 0.9;
 
 	ros::Rate rate(steps);
