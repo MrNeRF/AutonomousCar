@@ -13,6 +13,10 @@
 
 constexpr double pi() {return std::atan(1) * 4;}
 
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
+
 class Naive_Controller {
 	public: 
 		Naive_Controller(ros::NodeHandle &nh_, Eigen::MatrixXd track_, double target_vel_, double max_angular_vel_) :

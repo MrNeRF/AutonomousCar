@@ -270,13 +270,12 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 
 	index = tmp_index;
 
-	Eigen::VectorXd d = track.block(0,index,2,1) - state.block(0,0,2,1);
-	double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
-	norm = std::sqrt(d.dot(d));
-	double curvature = 2 * xv / (norm * norm);
-
 	xref.block(0,0,3,1) = state; 
 	for(int n=0; n < horizon; n++){
+		Eigen::VectorXd d = track.block(0,(index) % number_refpoints,2,1) - xref.block(0,n,2,1);
+		double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
+		norm = std::sqrt(d.dot(d));
+		double curvature = 2 * xv / (norm * norm);
 		uref(0,n) = target_velocity;
 		uref(1,n) = 2 * target_velocity * curvature;
 		xref.block(0,n+1, 3,1) = wmr(xref.block(0,n,3,1), uref.block(0,n,2,1), dt);
@@ -342,14 +341,13 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = init_state(2) = state(2);
 		firstrun = false;
 	}
-	//state << ekf_state(0), ekf_state(1), ekf_state(2);
 
 	currentIndex = getRefXandU(currentIndex, state);
 	if (stopcounter < 2000)
 		stopcounter  += sgn(currentIndex - stopcounter) * (currentIndex - stopcounter);
 	
-	std::cout << stopcounter << std::endl;
-	calc_mpc(state, true);
+	//calc_mpc(state, true);
+	calc_mpc(ekf_state, true);
 
 	model(0) = model(0) + u_opt(0) * cos(model(2) + dt * u_opt(1)) * dt;
 	model(1) = model(1) + u_opt(0) * sin(model(2) + dt * u_opt(1)) * dt;
@@ -625,7 +623,7 @@ int main(int argc, char **argv) {
 	int nu = 2;
 	int horizon = 30; 
 	int steps = 30;
-	double target_velocity = 0.10; // m/s
+	double target_velocity = 0.15; // m/s
 	double v_max = target_velocity;
 	double c = 0.134/2;
 	double angvel_max = v_max/c;
