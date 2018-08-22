@@ -56,6 +56,8 @@ class MPC_Controller {
 
 
 			kalman_index = 0;
+			stopcounter = 0;
+			done = false;
 			factor = 0.0;
 			firstrun = true;
 			time_begin = std::chrono::high_resolution_clock::now();
@@ -94,6 +96,8 @@ class MPC_Controller {
 		}
 
 	private:
+		bool done;
+		int stopcounter;
 		bool firstrun;
 		Eigen::Vector2d u_opt;
 		int number_refpoints;
@@ -338,8 +342,13 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = init_state(2) = state(2);
 		firstrun = false;
 	}
+	//state << ekf_state(0), ekf_state(1), ekf_state(2);
 
 	currentIndex = getRefXandU(currentIndex, state);
+	if (stopcounter < 2000)
+		stopcounter  += sgn(currentIndex - stopcounter) * (currentIndex - stopcounter);
+	
+	std::cout << stopcounter << std::endl;
 	calc_mpc(state, true);
 
 	model(0) = model(0) + u_opt(0) * cos(model(2) + dt * u_opt(1)) * dt;
@@ -352,9 +361,21 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 		model(2) += 2 * pi();
 
 	custom_msg::mpc_control control;
-	control.lin_vel	= u_opt(0);
-	control.ang_vel	= u_opt(1);
-	
+	if (stopcounter > 2000 && state(0) > 0 && state(1) > 0) {
+		done = true;
+	}
+	else{
+		control.lin_vel	= u_opt(0);
+		control.ang_vel	= u_opt(1);
+	}
+		
+	if(done){
+		control.lin_vel	= 0;
+		control.ang_vel	= 0;
+		pubMPC.publish(control);
+		ros::shutdown();
+
+	}
 	control.ekf_x		= ekf_state(0);
 	control.ekf_y   	= ekf_state(1);
 	control.ekf_yaw 	= ekf_state(2);
@@ -604,7 +625,7 @@ int main(int argc, char **argv) {
 	int nu = 2;
 	int horizon = 30; 
 	int steps = 30;
-	double target_velocity = 0.15; // m/s
+	double target_velocity = 0.10; // m/s
 	double v_max = target_velocity;
 	double c = 0.134/2;
 	double angvel_max = v_max/c;

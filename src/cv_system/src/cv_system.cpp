@@ -104,8 +104,8 @@ void createInfinityTrack() {
 	tmptrack.row(0) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
 	tmptrack.row(1) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
 	for (int i = 0; i < len; i++) {
-		tmptrack(0,i) = 1.4 * sin(tmptrack(0,i))      * 0.45;
-		tmptrack(1,i) = 0.9 * sin(2.0 *tmptrack(1,i)) * 0.45;
+		tmptrack(0,i) = 1.3 * sin(tmptrack(0,i))      * 0.45;
+		tmptrack(1,i) = 0.8 * sin(2.0 *tmptrack(1,i)) * 0.45;
 		std::cout << tmptrack(0,i) << "," << tmptrack(1,i) << std::endl;
 	}
 

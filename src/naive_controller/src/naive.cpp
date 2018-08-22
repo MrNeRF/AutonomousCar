@@ -25,6 +25,8 @@ class Naive_Controller {
 
 			deltaAngleLeftWheel = 0.0;
 			deltaAngleRightWheel = 0.0;
+			done = false;
+			stopcounter = 0;
 			
 			// Kalman filter init
 			firstrun = true;
@@ -66,6 +68,8 @@ class Naive_Controller {
 		bool firstrun;
 		Eigen::Vector2d u_opt;
 		int number_refpoints;
+		bool done;
+		int stopcounter;
 		double target_velocity;
 		double dt;
 		double max_angular_vel;
@@ -231,6 +235,8 @@ void Naive_Controller::car_position_cb(const custom_msg::car_position::ConstPtr&
 	state << p->xpos, p->ypos, p->yaw;
 	currentIndex = getControl(currentIndex, state);
 	car_pos = state;
+	if (stopcounter < 2000)
+		stopcounter  += sgn(currentIndex - stopcounter) * (currentIndex - stopcounter);
 
 	if(firstrun) {
 		ekf_state(0) = imu_x_measured   = model(0) = odom_x_measured   = init_state(0) = state(0);
@@ -250,8 +256,21 @@ void Naive_Controller::car_position_cb(const custom_msg::car_position::ConstPtr&
 		model(2) += 2 * pi();
 
 	custom_msg::mpc_control control;
-	control.lin_vel	= u_opt(0);
-	control.ang_vel	= u_opt(1);
+	if (stopcounter > 2000 && state(0) > 0 && state(1) > 0) {
+		done = true;
+	}
+	else{
+		control.lin_vel	= u_opt(0);
+		control.ang_vel	= u_opt(1);
+	}
+		
+	if(done){
+		control.lin_vel	= 0;
+		control.ang_vel	= 0;
+		pubMPC.publish(control);
+		ros::shutdown();
+
+	}
 	
 	control.ekf_x		= ekf_state(0);
 	control.ekf_y   	= ekf_state(1);
