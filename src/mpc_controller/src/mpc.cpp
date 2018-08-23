@@ -272,7 +272,7 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 
 	xref.block(0,0,3,1) = state; 
 	for(int n=0; n < horizon; n++){
-		Eigen::VectorXd d = track.block(0,(index) % number_refpoints,2,1) - xref.block(0,n,2,1);
+		Eigen::VectorXd d = track.block(0,(index + n) % number_refpoints,2,1) - xref.block(0,n,2,1);
 		double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
 		norm = std::sqrt(d.dot(d));
 		double curvature = 2 * xv / (norm * norm);

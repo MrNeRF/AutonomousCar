@@ -1,0 +1,1 @@
+rostopic echo -b perfectNaive.bag -p /mpc_control > perfectNaiverun.csv
