@@ -96,7 +96,8 @@ void createCassiniTrack() {
 }
 
 void createInfinityTrack() {
-	int len = 851;
+	//861 at 0.15 m/s
+	int len = 861;
 	Eigen::ArrayXXd tmptrack(3, len);
 
 	Mat WToS = Mat::zeros(3,1,DataType<double>::type);
@@ -429,6 +430,7 @@ int main(int argc, char **argv) {
 			case 'r':
 				if(!recording) {
 					cout << "Recording" << endl;
+					video = VideoWriter("autonomous_car.avi", codec, 24, Size(img_width, img_height));
 					recording = true;
 				} else {
 					cout << "Stop Recording" << endl;

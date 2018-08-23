@@ -215,7 +215,7 @@ int Naive_Controller::getControl(int index, Eigen::VectorXd state) {
 	double curvature = 2 * xv / (norm * norm);
 
 	u_opt(0) = target_velocity;
-	u_opt(1) = 2 * target_velocity * curvature;
+	u_opt(1) = target_velocity * curvature;
 	return index % number_refpoints;
 }
 
@@ -294,6 +294,8 @@ void Naive_Controller::car_position_cb(const custom_msg::car_position::ConstPtr&
 	control.model_x		= model(0);
 	control.model_y		= model(1);
 	control.model_yaw	= model(2);
+	control.optlinvel	= u_opt(0);
+	control.optangvel   = u_opt(1);
 
 	pubMPC.publish(control);
 }
@@ -332,7 +334,7 @@ int main(int argc, char **argv) {
 	ros::ServiceClient trackClient = nh.serviceClient<custom_msg::track>("track");
 
 	int steps = 30;
-	double target_velocity = 0.2; // m/s
+	double target_velocity = 0.15; // m/s
 	double max_angular_vel = 0.9;
 
 	ros::Rate rate(steps);
