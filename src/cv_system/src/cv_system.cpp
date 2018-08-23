@@ -14,7 +14,6 @@
 #include <ctime>
 #include <cmath>
 #include <cassert>
-#include <stdio.h>
 
 using namespace std;
 using namespace cv;
@@ -95,49 +94,33 @@ void createCassiniTrack() {
 	// save mpc_data in global variable
 	mpc_track = track;
 }
-void createInfinityTrack() {
-	double dt = 1.0/fps;
 
-	int len = 600;
+void createInfinityTrack() {
+	int len = 851;
 	Eigen::ArrayXXd tmptrack(3, len);
 
+	Mat WToS = Mat::zeros(3,1,DataType<double>::type);
+	Point2f tmp = worldToScreen(WToS);
 	tmptrack.row(0) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
 	tmptrack.row(1) = Eigen::ArrayXd::LinSpaced(len,0,2 * pi());
 	for (int i = 0; i < len; i++) {
-		tmptrack(0,i) = 1.3 * sin(tmptrack(0,i))      * 0.45;
-		tmptrack(1,i) = 0.8 * sin(2.0 *tmptrack(1,i)) * 0.45;
-		std::cout << tmptrack(0,i) << "," << tmptrack(1,i) << std::endl;
-	}
-
-	// track from 0 to 2pi ends in wrong optimization values
-	len = len - 1;
-	Eigen::ArrayXXd track = tmptrack.block(0,0,3,len);
-
-	double dx = (track(0,0) - track(0,len - 1)) /dt;
-	double dy = (track(1,0) - track(1,len - 1)) /dt;
-	track(2,0) = std::atan2(dy, dx);
-	assert(!std::isinf(track(2,0))); // check if something goes numerically wrong
-
-	Mat WToS = Mat::zeros(3,1,DataType<double>::type);
-	WToS.at<double>(0,0) = track(0,0) * 100;
-	WToS.at<double>(1,0) = track(1,0) * 100;
-	Point2f tmp = worldToScreen(WToS);
-	pnts.push_back(tmp + coord_bias);
-	
-	for(int i=1;i<len;i++) {
-		dx = (track(0,i) - track(0,i-1)) /dt;
-		dy = (track(1,i) - track(1,i-1)) /dt;
-		track(2,i) = std::atan2(dy, dx);
-		assert(!std::isinf(track(2,i)));
-		WToS.at<double>(0,0) = track(0,i) * 100;
-		WToS.at<double>(1,0) = track(1,i) * 100;
+		double dx = 1.4 * 0.45 * cos(tmptrack(0,i));
+		double dy = 1.4 * 0.45 * 2.0 * cos(2 * tmptrack(0,i));
+		tmptrack(2,i) = std::atan2(dy, dx);
+		tmptrack(0,i) = 1.4 * sin(tmptrack(0,i))      * 0.45;
+		tmptrack(1,i) = 0.9 * sin(2.0 *tmptrack(1,i)) * 0.45;
+		WToS.at<double>(0,0) = tmptrack(0,i) * 100;
+		WToS.at<double>(1,0) = tmptrack(1,i) * 100;
 		tmp = worldToScreen(WToS);
 		pnts.push_back(tmp + coord_bias);
 	}
 
-	// save mpc_data in global variable
-	mpc_track = track;
+	// track from 0 to 2pi ends in wrong optimization values
+	len = len - 1;
+	
+	mpc_track = tmptrack.block(0,0,3,len);
 }
+
 
 void createCircleTrack(double screen_radius, double ticks) {
 	double dt = 1.0/fps;
@@ -446,7 +429,6 @@ int main(int argc, char **argv) {
 			case 'r':
 				if(!recording) {
 					cout << "Recording" << endl;
-					video = VideoWriter("autonomous_car.avi", codec, 24, Size(img_width, img_height));
 					recording = true;
 				} else {
 					cout << "Stop Recording" << endl;

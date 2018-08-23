@@ -8,7 +8,6 @@
 #include <custom_msg/mpc_control.h>
 #include <custom_msg/car_position.h>
 #include <custom_msg/sensor_measures.h>
-#include <custom_msg/optimize.h>
 #include <custom_msg/track.h>
 #include "std_msgs/Float64MultiArray.h"
 #include "visualization_msgs/Marker.h"
@@ -21,11 +20,19 @@ template <typename T> int sgn(T val) {
     return (T(0) < val) - (val < T(0));
 }
 
+double curvature(double t) {
+    double a = 0.5103 * std::sin(t) * std::cos(2*t)  - 1.0206 * std::sin(2 *t) * std::cos(t);
+    double b = std::sqrt(0.3969 * std::pow(std::cos(t),2) + 0.6561 * std::pow(std::cos(2 * t),2));
+    b = pow(b,3);
+    return a/b;
+
+}
+
 class MPC_Controller {
 	public: 
 		MPC_Controller(ros::NodeHandle &nh_, int horizon_, Eigen::MatrixXd Q_,\
 				Eigen::MatrixXd R_, Eigen::MatrixXd track_, double vel, Eigen::Vector2d umin, \
-				Eigen::Vector2d umax, int nx_, int nu_, double c_) : ekf_state(3), ekf_bar(3){
+				Eigen::Vector2d umax, int nx_, int nu_, double c_) : ekf_state(6), ekf_bar(6){
 
 			nh = nh_;
 			horizon = horizon_;
@@ -57,26 +64,23 @@ class MPC_Controller {
 
 			kalman_index = 0;
 			stopcounter = 0;
-			done = false;
+			done =false;
 			factor = 0.0;
 			firstrun = true;
 			time_begin = std::chrono::high_resolution_clock::now();
 			// Kalman filter init
 
-			Hk = Eigen::MatrixXd::Zero(6,3);
-			Hk(0,0) = 1.0, Hk(1,1) = 1.0, Hk(2,2) = 1.0, Hk(3,0) = 1.0, Hk(4,1) = 1.0, Hk(5,2) = 1.0;
+			Hk = Eigen::MatrixXd::Zero(6,6);
+			Hk(0,0) = 1.0, Hk(1,1) = 1.0, Hk(2,2) = 1.0, Hk(0,3) = 1.0, Hk(1,4) = 1.0, Hk(2,5) = 1.0;
 			Rk = Eigen::MatrixXd::Identity(6,6);
-			Rk(0,0) = .5, Rk(1,1) = .5, Rk(2,2) = 0.1, Rk(3,3) = .3, Rk(4,4) = .3, Rk(5,5) = .5;
-			Pk = Eigen::MatrixXd::Identity(3,3);
-			Pk(0,0) = .0, Pk(1,1) = .0; Pk(2,2) = .0;
-			Qk = Eigen::MatrixXd::Identity(3, 3);
+			Rk(0,0) = .1, Rk(1,1) = .1, Rk(2,2) = 0.1, Rk(3,3) = .3, Rk(4,4) = .3, Rk(5,5) = .5;
+			Pk = Eigen::MatrixXd::Identity(6,6);
+			Pk(0,0) = .0, Pk(1,1) = .0; Pk(2,2) = .0, Pk(3,3) = .0, Pk(4,4) = .0, Pk(5,5) = .0;
+			Qk = Eigen::MatrixXd::Identity(6, 6);
 			Qk(0,0) = 1., Qk(1,1) = 1., Qk(2,2) = 0.1; 
-			Qk(2,0) = Qk(0,2) = 0.0;
-			Qk(1,0) = Qk(0,1) = 0.0;
-			Qk(1,2) = Qk(2,1) = 0.0;
 
-			ekf_state << 1.0, 1.0, 1.0;
-			ekf_bar << 0.0, 0.0, 0.0;
+			ekf_state << 1.0, 1.0, 1.0, 0.01, 0.01, 0.01;
+			ekf_bar << 0.0, 0.0, 0.0,0.0, 0.0, 0.0;
 			model <<  0.0, 0.0, 0.0;
 			imu_x_measured = 0.0;
 			imu_y_measured = 0.0;
@@ -91,14 +95,13 @@ class MPC_Controller {
 			positionSubscriber = nh.subscribe("car_position", 10, &MPC_Controller::car_position_cb, this);
 			measurementSubscriber = nh.subscribe("sensor_measures", 500, &MPC_Controller::measurement_cb, this);
 			pubMPC = nh.advertise<custom_msg::mpc_control>("mpc_control", 1);
-			pubOptimize = nh.advertise<custom_msg::optimize>("optimize", 1);
 			pub_mpcmarker = nh.advertise<visualization_msgs::Marker>("mpc_marker", 10);
 		}
 
 	private:
+		bool firstrun;
 		bool done;
 		int stopcounter;
-		bool firstrun;
 		Eigen::Vector2d u_opt;
 		int number_refpoints;
 		int horizon;
@@ -111,9 +114,8 @@ class MPC_Controller {
 		double factor;
 		ros::NodeHandle nh;
 		ros::Subscriber positionSubscriber, measurementSubscriber;
-		ros::Publisher pubMPC, pub_mpcmarker, pubOptimize;
+		ros::Publisher pubMPC, pub_mpcmarker;
 		Eigen::Vector3d car_pos;
-		Eigen::Vector3d init_state;
 		Eigen::Vector2d u_min;
 		Eigen::Vector2d u_max;
 		Eigen::MatrixXd track;
@@ -135,7 +137,6 @@ class MPC_Controller {
 		double angleDifference(double diff);
 		int getQuadrant(double quadrant);
 		//void car_position_cb(const nav_msgs::Odometry::ConstPtr& p);
-		Eigen::Vector3d wmr(Eigen::Vector3d x, Eigen::Vector2d u, double stepsize_h);
 		Eigen::VectorXd mpc_controller(Eigen::MatrixXd x_ref, Eigen::MatrixXd u_ref, Eigen::Vector3d state, bool sentMarker);
 		Eigen::MatrixXd A_k(Eigen::MatrixXd u_ref, Eigen::MatrixXd x_ref, int i);
 		Eigen::MatrixXd B_k(Eigen::MatrixXd x_ref, int i);
@@ -169,14 +170,6 @@ class MPC_Controller {
 		void extended_KF(double delta_t);
 };
 
-Eigen::Vector3d MPC_Controller::wmr(Eigen::Vector3d x, Eigen::Vector2d u, double stepsize_h){
-	Eigen::Vector3d newstate;
-	newstate << 0.0,0.0,0.0;
-	newstate(0) = x(0) + stepsize_h * u(0) * cos(x(2));
-	newstate(1) = x(1) + stepsize_h * u(0) * sin(x(2));
-	newstate(2) = x(2) + stepsize_h * u(1);
-	return newstate;
-}
 
 
 void MPC_Controller::measurement_cb(const custom_msg::sensor_measures::ConstPtr& measure) {
@@ -236,7 +229,8 @@ void MPC_Controller::sendMPCMarker(Eigen::MatrixXd nextGoal, Eigen::MatrixXd mpc
 int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 	Eigen::MatrixXd uref = Eigen::MatrixXd::Zero(nu, horizon);
 	Eigen::MatrixXd xref = Eigen::MatrixXd::Zero(nx, horizon + 1);
-	double lad = 0.25;  // lookahead distance
+	int end = track.cols();
+	double lad = 0.2;  // lookahead distance
 	double distance = 0.1;
 	volatile double norm;
 	int discretization = 80;
@@ -245,8 +239,8 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 
 	// prepare lookahead half circle
 	Eigen::ArrayXXd lahead_circle(2, discretization);
-	lahead_circle.row(0) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - 0.5 * pi(), state(2) + 0.5 * pi());
-	lahead_circle.row(1) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - 0.5 * pi(), state(2) + 0.5 *pi());
+	lahead_circle.row(0) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - pi()/2, state(2) + pi()/2);
+	lahead_circle.row(1) = Eigen::ArrayXd::LinSpaced(discretization, state(2) - pi()/2, state(2) + pi()/2);
 	lahead_circle.row(0) = lahead_circle.row(0).cos() * lad;
 	lahead_circle.row(1) = lahead_circle.row(1).sin() * lad;
 	Eigen::MatrixXd car_circle = lahead_circle.matrix();
@@ -267,26 +261,49 @@ int MPC_Controller::getRefXandU(int index, Eigen::VectorXd state) {
 		}
 	}
 
-
 	index = tmp_index;
 
-	xref.block(0,0,3,1) = state; 
-	for(int n=0; n < horizon; n++){
-		Eigen::VectorXd d = track.block(0,(index + n) % number_refpoints,2,1) - xref.block(0,n,2,1);
-		double xv  = -d(0) * std::sin(state(2)) + d(1) * std::cos(state(2));
-		norm = std::sqrt(d.dot(d));
-		double curvature = 2 * xv / (norm * norm);
-		uref(0,n) = target_velocity;
-		uref(1,n) = 2 * target_velocity * curvature;
-		xref.block(0,n+1, 3,1) = wmr(xref.block(0,n,3,1), uref.block(0,n,2,1), dt);
-		int currentQuadrant = getQuadrant(xref(2,n));
-		if (currentQuadrant == 2 && quadTransTo(xref(2,n), xref(2,n+1)) == 3) {
-			xref(2,n+1) += 2 * pi();
+
+	if (index + horizon >= end) {
+		int k = 0;
+		for(int i = index; i < end; i++) {
+			// just x and y position
+			xref.block(0, k, 3, 1) = track.block(0,i,3,1);
+			k +=1;
 		}
-		else if (currentQuadrant == 3 && quadTransTo(xref(2,n), xref(2,n+1)) == 2) {
-			xref(2,0) -= 2 * pi();
+
+		int diff = end - index;
+
+		for (int i = 0; i < horizon - diff + 1 ; i++) {
+			xref.block(0, k, 3, 1) = track.block(0,i,3,1);
+			k +=1;
 		}
-		state = xref.block(0,n+1,3,1);
+	}  else {
+		if(index > 0) {
+			xref.block(0,0,3,horizon + 1) = track.block(0,index-1,3,horizon+1);
+		} else {
+			xref.block(0,0,3,1) = track.block(0, number_refpoints - 1, 3,1);
+			xref.block(0,1,3,horizon) = track.block(0, 0,3, horizon);
+		}
+	}
+
+	int currentQuadrant = getQuadrant(state(2));
+	if (currentQuadrant == 2 && quadTransTo(state(2), xref(2,0)) == 3) {
+		xref(2,0) += 2 * pi();
+	}
+	else if (currentQuadrant == 3 && quadTransTo(state(2), xref(2,0)) == 2)
+		xref(2,0) -= 2 * pi();
+	
+	for(int i= 1; i < horizon+1; i++) {
+
+		if (currentQuadrant == 2 && quadTransTo(state(2), xref(2,i)) == 3) {
+			xref(2,i) += 2 * pi();
+		}
+		else if (currentQuadrant == 3 && quadTransTo(state(2), xref(2,i)) == 2)
+			xref(2,i) -= 2 * pi();
+		double angular_vel = (xref(2,i) - xref(2,i-1))/dt;
+		uref(0,i-1) = target_velocity;
+		uref(1,i-1) = 2 * target_velocity * curvature((index + i - 1) / number_refpoints * 2*pi() );
 	}
 	x_input = xref;
 	u_input = uref;
@@ -333,21 +350,18 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 
 	Eigen::Vector3d state;
 	state << p->xpos, p->ypos, p->yaw;
-	car_pos = state;
 
 	if(firstrun) {
-		ekf_state(0) = imu_x_measured   = model(0) = odom_x_measured   = init_state(0) = state(0);
-		ekf_state(1) = imu_y_measured   = model(1) = odom_y_measured   = init_state(1) = state(1);
-		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = init_state(2) = state(2);
+		ekf_state(0) = imu_x_measured   = model(0) = odom_x_measured   = state(0);
+		ekf_state(1) = imu_y_measured   = model(1) = odom_y_measured   = state(1);
+		ekf_state(2) = imu_yaw_measured = model(2) = odom_yaw_measured = state(2);
 		firstrun = false;
 	}
 
 	currentIndex = getRefXandU(currentIndex, state);
 	if (stopcounter < 2000)
 		stopcounter  += sgn(currentIndex - stopcounter) * (currentIndex - stopcounter);
-	
-	//calc_mpc(state, true);
-	calc_mpc(ekf_state, true);
+	calc_mpc(state, true);
 
 	model(0) = model(0) + u_opt(0) * cos(model(2) + dt * u_opt(1)) * dt;
 	model(1) = model(1) + u_opt(0) * sin(model(2) + dt * u_opt(1)) * dt;
@@ -374,6 +388,7 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 		ros::shutdown();
 
 	}
+	
 	control.ekf_x		= ekf_state(0);
 	control.ekf_y   	= ekf_state(1);
 	control.ekf_yaw 	= ekf_state(2);
@@ -392,6 +407,8 @@ void MPC_Controller::car_position_cb(const custom_msg::car_position::ConstPtr& p
 	control.model_x		= model(0);
 	control.model_y		= model(1);
 	control.model_yaw	= model(2);
+	control.optlinvel	= u_opt(0);
+	control.optlinvel   = u_opt(1);
 
 	pubMPC.publish(control);
 }
@@ -487,6 +504,7 @@ Eigen::VectorXd  MPC_Controller::mpc_controller(Eigen::MatrixXd x_ref, Eigen::Ma
 	Eigen::VectorXd xk_bar = Ak_bar * x_tilda + Bk_bar * uk_bar;
 	Eigen::Map<Eigen::MatrixXd> xk_bar_reshape(xk_bar.data(), nx, horizon);
 	Eigen::MatrixXd xk = xk_bar_reshape.block(0,0,nx,horizon) + x_ref.block(0,0,nx,horizon);
+	car_pos = xk.block(0,0,3,1);
 
 	if(sentMarker) {
 		sendMPCMarker(track.block(0,currentIndex,2,1), xk);
@@ -555,25 +573,8 @@ Eigen::MatrixXd MPC_Controller::B_bar(Eigen::MatrixXd &u_ref, Eigen::MatrixXd &x
 
 
 void MPC_Controller::extended_KF(double delta_t) {
-
-	/* Data for analysis with python */
-	custom_msg::optimize optim;
-	optim.odom_delta_yaw_measured = odom_delta_yaw_measured;
-	optim.imu_delta_yaw_measured = imu_delta_yaw_measured;
-	optim.linv_vel_measured = lin_vel_measured;
-	optim.deltaAngleLeftWheel = deltaAngleLeftWheel;
-	optim.deltaAngleRightWheel = deltaAngleRightWheel;
-	optim.optLinVel = u_opt(0);
-	optim.optAngVel = u_opt(1);
-	optim.init_x   = init_state(0);
-	optim.init_y   = init_state(1);
-	optim.init_yaw = init_state(2);
-	optim.current_x	  = car_pos(0); 
-	optim.current_y   = car_pos(1);
-	optim.current_yaw = car_pos(2);
-	optim.delta_t = delta_t;
-	pubOptimize.publish(optim);
-	/*Data for analysis with python */
+	/* T.D. Larsen et al. 1998: Location Esitimation for Autonomously Guided */ 
+	/* 	Vehicle using an Augmented Kalman Filter to Autocalibrate the  Odometry */	
 
 	// calculate measurement updates based on odomoter
 	odom_yaw_measured = odom_yaw_measured + odom_delta_yaw_measured;
@@ -590,28 +591,85 @@ void MPC_Controller::extended_KF(double delta_t) {
 	zk << imu_x_measured, imu_y_measured, imu_yaw_measured, odom_x_measured, odom_y_measured, odom_yaw_measured;
 
 	// Kalman Filtering starts here;
+	ekf_bar(0) = ekf_state(0) + u_opt(0) * delta_t * cos(ekf_state(2) + u_opt(1)  * delta_t);
+	ekf_bar(1) = ekf_state(1) + u_opt(0) * delta_t * sin(ekf_state(2) + u_opt(1)  * delta_t);
 	ekf_bar(2) = ekf_state(2) + u_opt(1) * delta_t; 
 	ekf_bar(2) = angleDifference(ekf_bar(2));
-	ekf_bar(0) = ekf_state(0) + u_opt(0) * delta_t * cos(ekf_state(2));
-	ekf_bar(1) = ekf_state(1) + u_opt(0) * delta_t * sin(ekf_state(2));
+	ekf_bar(3) = ekf_state(3);
+	ekf_bar(4) = ekf_state(4);
+	ekf_bar(5) = ekf_state(5);
 
+	double rightWheelRadius = 0.033;
+	double leftWheelRadius  = 0.033;
+	double base				= 0.1338;
 
+	double rightWheelError = 0.004;
+	double leftWheelError  = 0.004;
+	double baseError	   = 0.02;
+
+	double dDelta   = (ekf_state(3) * rightWheelRadius * deltaAngleRightWheel + ekf_state(4) * leftWheelRadius * deltaAngleLeftWheel) / 2.0 * delta_t;
+	double phiDelta = -1.0 * (ekf_state(3) * rightWheelRadius * deltaAngleRightWheel - ekf_state(4) * leftWheelRadius * deltaAngleLeftWheel )/ (ekf_state(5) * base) * delta_t;
+
+	double phi = ekf_state(2) +  angleDifference(phiDelta) / 2.0;
+	phi        = angleDifference(phi);
+
+	double dstar_max = dDelta + (std::abs(rightWheelError * deltaAngleRightWheel) + std::abs(leftWheelError * deltaAngleLeftWheel)) / 2.0;
+	double dstar_min = dDelta - (std::abs(rightWheelError * deltaAngleRightWheel) + std::abs(leftWheelError * deltaAngleLeftWheel)) / 2.0;
+	double dDeltaDelta = (dstar_max - dstar_min) / 2.0;
+	double phistar_max = base / (base - sgn(phiDelta) * std::abs(baseError)) * (phiDelta + (std::abs(rightWheelError * deltaAngleRightWheel) + std::abs(leftWheelError * deltaAngleLeftWheel)) / base);
+	double phistar_min = base / (base - sgn(phiDelta) * std::abs(baseError)) * (phiDelta - (std::abs(rightWheelError * deltaAngleRightWheel) + std::abs(leftWheelError * deltaAngleLeftWheel)) / base);
+	double phiDeltaDelta = (phistar_max - phistar_min) / 2.0;
 
 	Eigen::MatrixXd Ak(3,3);
-	Ak << 1.0, 0.0, -u_opt(0)  * std::sin(u_opt(1) * delta_t) * delta_t,
-		  0.0, 1.0,  u_opt(0) * std::cos(u_opt(1) * delta_t)  * delta_t, 
+	Ak << 1.0, 0.0, -dDelta  * std::sin(phi),
+		  0.0, 1.0,  dDelta  * std::cos(phi), 
 		  0.0, 0.0, 1.0;
 
+	Eigen::MatrixXd AkAugmen = Eigen::MatrixXd::Zero(6,6);
+	AkAugmen.block(0,0,3,3) = Ak;
+	AkAugmen.block(3,3,3,3) = Eigen::MatrixXd::Identity(3,3);
+	AkAugmen(0,3) = rightWheelRadius * deltaAngleRightWheel * std::cos(phi) * 1.0/2.0 - dDelta * rightWheelRadius * deltaAngleRightWheel * std::sin(phi) * 1.0 / (ekf_state(5) * base);
+	AkAugmen(0,4) = leftWheelRadius  * deltaAngleLeftWheel  * std::cos(phi) * 1.0/2.0 + dDelta * leftWheelRadius  * deltaAngleLeftWheel  * std::sin(phi) * 1.0 / (ekf_state(5) * base);
+	AkAugmen(0,5) = dDelta * phiDelta * std::sin(phi) * 1.0/(2.0 * ekf_state(5));
+	AkAugmen(1,3) = rightWheelRadius * deltaAngleRightWheel * std::sin(phi) * 1.0/2.0 + dDelta * rightWheelRadius * deltaAngleRightWheel * std::cos(phi) * 1.0 / (ekf_state(5) * base);
+	AkAugmen(1,4) = leftWheelRadius   * deltaAngleLeftWheel   * std::sin(phi)  * 1.0/2.0 - dDelta * leftWheelRadius  * deltaAngleLeftWheel  * std::cos(phi)   * 1.0 / (ekf_state(5) * base);
+	AkAugmen(1,5) = -1.0 * dDelta * phiDelta * std::cos(phi) * 1.0/(2.0 * ekf_state(5));
+	AkAugmen(2,3) =        rightWheelRadius * deltaAngleRightWheel / (ekf_state(5) * base);
+	AkAugmen(2,4) = -1.0 * leftWheelRadius  * deltaAngleLeftWheel   / (ekf_state(5) * base);
+	AkAugmen(2,5) = -1.0 * phiDelta / ekf_state(5);
 
-	Pk = Ak * Pk * Ak.transpose() + Qk;
+	Eigen::MatrixXd Gk(3,2);
+	Gk << std::cos(phi), -1.0/2.0 * dDelta * std::sin(phi),
+		  std::sin(phi),  1.0/2.0 * dDelta * std::cos(phi),
+		  0.0		   ,  1.0;
 
+
+	Eigen::MatrixXd Qmax = Eigen::MatrixXd::Identity(2,2);
+	Qmax(0,0) = dDeltaDelta;
+	Qmax(1,1) = phiDeltaDelta;
+	
+	// (3,3)         = (3,2) * (2,2) * (2,3)
+	Qk.block(0,0,3,3) = Gk * Qmax * Gk.transpose();
+	Qk(3,3) = 2., Qk(4,4) = 2., Qk(5,5) = 2.0;
+
+	// (6,6) = (6,6) * (6,6) * (6,6) 
+	Pk = AkAugmen * Pk * AkAugmen.transpose() + Qk;
+
+	//(6,1)           =  (6,1) 
 	Eigen::VectorXd y = zk - Hk * ekf_bar;
+
+	//(6,6)            = (6,6) * (6,6) * (6,6) + (6,6);
 	Eigen::MatrixXd Sk = Hk * Pk * Hk.transpose() + Rk;
+	// (6,6)
 	Eigen::MatrixXd K = Pk * Hk.transpose() * Sk.inverse();
 	ekf_state = ekf_bar + K * y;
 	ekf_state(2) = angleDifference(ekf_state(2));
 	Pk = Pk - K * Hk * Pk;
 
+	std::cout << "--- Start ---" << std::endl;
+	std::cout << ekf_state(3) << ", " << ekf_state(4) << ", " << ekf_state(5) << std::endl;
+	std::cout << Pk << std::endl;
+	std::cout << "--- End ---" << std::endl;
 }
 
 int main(int argc, char **argv) {
@@ -651,7 +709,7 @@ int main(int argc, char **argv) {
 	Eigen::Vector2d umin(-v_max, -angvel_max);
 	Eigen::Vector2d umax = -1 * umin;
 	Eigen::DiagonalMatrix<double, 3> q;
-	q.diagonal() << 100.0,100.0,.1;  //90,90,0.8
+	q.diagonal() << 100.0,100.0,1.0;  //90,90,0.8
 	Eigen::DiagonalMatrix<double, 2> r;
 	r.diagonal() << 0.1,0.1;
 
