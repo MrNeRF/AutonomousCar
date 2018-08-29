@@ -18,3 +18,5 @@ float32 ekf_bar_yaw
 float32 model_x		
 float32 model_y		
 float32 model_yaw	
+float32 reflinvel
+float32 refangvel
