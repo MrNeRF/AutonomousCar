@@ -1,9 +1,0 @@
-ekf/env/
-build/
-devel/
-install/
-.gitignore
-*.swp
-*.avi
-
-
